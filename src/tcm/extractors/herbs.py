@@ -6,6 +6,7 @@ import hashlib
 from tcm.core.exceptions import ProcessingError
 from tcm.core.models import Node, Source
 from tcm.core.enums import NodeType, PropertyType
+from tcm.processors.text_extractor import ExtractedEntity
 from .base import BaseExtractor, ExtractionResult
 
 class HerbExtractor(BaseExtractor):
@@ -15,67 +16,124 @@ class HerbExtractor(BaseExtractor):
         super().__init__(config)
         self.herb_patterns = self._compile_herb_patterns()
         self.property_patterns = self._compile_property_patterns()
+        self.valid_herbs = self._load_valid_herbs()
     
-    def extract(self, text: str, sources: List[Source]) -> ExtractionResult:
+    def _load_valid_herbs(self) -> Set[str]:
+        """Load a set of known valid herb names."""
+        # This could be loaded from a curated data file
+        return {
+            # Common Chinese herbs (pinyin)
+            "ren shen", "huang qi", "gan cao", "dang gui", "bai shao",
+            # Latin names
+            "Panax ginseng", "Astragalus membranaceus", "Glycyrrhiza uralensis",
+            # Common names
+            "ginseng", "astragalus", "licorice", "angelica", "peony"
+        }
+    
+    def extract(self, text: str, sources: List[Source], context_entities: Optional[List[ExtractedEntity]] = None) -> ExtractionResult:
         """Extract herb information from text."""
         try:
-            # Generate cache key
-            cache_key = hashlib.md5(text.encode()).hexdigest()
-            
-            # Check cache
-            cached = self.get_cached_result(cache_key)
-            if cached:
-                return cached
-            
-            # Extract herb mentions
-            herb_mentions = self._extract_herb_mentions(text)
-            
-            # Extract properties for each herb
-            nodes = []
-            for herb_name, positions in herb_mentions.items():
-                # Get surrounding context for property extraction
-                contexts = self._get_contexts(text, positions)
+          # Generate cache key
+          cache_key = hashlib.md5(text.encode()).hexdigest()
+          
+          # Check cache
+          cached = self.get_cached_result(cache_key)
+          if cached:
+              return cached
+          
+          # Extract herb mentions
+          herb_mentions = self._extract_herb_mentions(text)
+          
+          # Use context entities to enhance extraction if available
+          if context_entities:
+              herb_mentions.update(
+                  self._process_context_entities(context_entities)
+              )
                 
-                # Extract properties from contexts
-                properties = {}
-                for context in contexts:
-                    props = self._extract_properties(context)
-                    properties.update(props)
-                
-                # Create herb node
-                node = Node(
-                    id=f"herb_{self._generate_id(herb_name)}",
-                    type=NodeType.HERB,
-                    name=herb_name,
-                    attributes=properties,
-                    sources=sources,
-                    confidence=self._calculate_confidence(len(contexts), properties)
-                )
-                nodes.append(node)
+          # Validate herb mentions before processing
+          validated_mentions = {}
+          for herb_name, positions in herb_mentions.items():
+              if self._validate_herb_name(herb_name):
+                  validated_mentions[herb_name] = positions
+          
+          # Process validated herbs
+          nodes = []
+          for herb_name, positions in validated_mentions.items():
+              # Get surrounding context for property extraction
+              contexts = self._get_contexts(text, positions)
+              
+              # Extract properties from contexts
+              properties = {}
+              for context in contexts:
+                  props = self._extract_properties(context)
+                  properties.update(props)
+              
+              # Create herb node
+              node = Node(
+                  id=f"herb_{self._generate_id(herb_name)}",
+                  type=NodeType.HERB,
+                  name=herb_name,
+                  attributes=properties,
+                  sources=sources,
+                  confidence=self._calculate_confidence(len(contexts), properties)
+              )
+              nodes.append(node)
             
-            result = ExtractionResult(
-                nodes=nodes,
-                confidence=sum(n.confidence for n in nodes) / len(nodes) if nodes else 0,
-                sources=set(sources),
-                metadata={"mention_counts": herb_mentions}
-            )
+              result = ExtractionResult(
+                  nodes=nodes,
+                  confidence=sum(n.confidence for n in nodes) / len(nodes) if nodes else 0,
+                  sources=set(sources),
+                  metadata={"mention_counts": herb_mentions}
+              )
             
-            # Cache result
-            if self.validate_extraction(result):
-                self.cache_result(cache_key, result)
-            
-            return result
-            
+              # Cache result
+              if self.validate_extraction(result):
+                  self.cache_result(cache_key, result)
+              
+              return result
+          
         except Exception as e:
-            raise ProcessingError(f"Herb extraction failed: {e}")
+            raise ProcessingError(f"Herb extraction failed: {e}") 
+
+    def _validate_herb_name(self, name: str) -> bool:
+        """Validate if a string is likely a herb name."""
+        # Check minimum length
+        if len(name) < 3:
+            return False
+            
+        # Check for common stop words and conjunctions
+        stop_words = {'and', 'the', 'for', 'but', 'with', 'that', 'this'}
+        if name.lower() in stop_words:
+            return False
+            
+        # Check for common non-herb phrases
+        if re.search(r'\b(?:perspective|they|nevertheless|example)\b', name, re.IGNORECASE):
+            return False
+            
+        # Must contain at least one word character
+        if not re.search(r'\w', name):
+            return False
+            
+        return True
     
     def _compile_herb_patterns(self) -> Dict[str, re.Pattern]:
-        """Compile regex patterns for herb identification."""
-        return {
-            'latin': re.compile(r'\b[A-Z][a-z]+ [a-z]+\b(?=\s*\([A-Za-z\s]+\))?'),
-            'pinyin': re.compile(r'\b[A-Z][a-z]+(?:\s+[a-z]+)*\b'),
-            'chinese': re.compile(r'[\u4e00-\u9fff]{2,}')  # Basic Chinese character matching
-        }
+      """Compile regex patterns for herb identification."""
+      return {
+          'latin': re.compile(
+              r'\b[A-Z][a-z]+ (?:[a-z]+\.? )?[a-z]+\b'  # More specific Latin name pattern
+              r'(?=\s*\([A-Za-z\s]+\))?'
+          ),
+          'pinyin': re.compile(
+              r'\b(?:Radix |Herba |Rhizoma |Cortex |Flos |Fructus )'  # Common TCM prefixes
+              r'[A-Z][a-z]+(?:\s+[a-z]+){0,2}\b'
+          ),
+          'common': re.compile(
+              r'\b(?:ginseng|astragalus|licorice|angelica|peony|rehmannia'
+              r'|cinnamon|ginger|jujube|schisandra|codonopsis)'
+              r'(?:\s+root|bark|flower|fruit)?\b',
+              re.IGNORECASE
+          )
+      }
     
     def _compile_property_patterns(self) -> Dict[str, re.Pattern]:
         """Compile patterns for property extraction."""

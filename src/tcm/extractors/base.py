@@ -1,10 +1,11 @@
 # tcm/extractors/base.py
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass
 
 from tcm.core.models import Node, Source
 from tcm.core.exceptions import ExtractionError
+from tcm.processors.text_extractor import ExtractedEntity
 
 @dataclass
 class ExtractionResult:
@@ -12,7 +13,7 @@ class ExtractionResult:
     nodes: List[Node]
     confidence: float
     sources: Set[Source]
-    metadata: Dict[str, any]
+    metadata: Dict[str, Any]
 
 class BaseExtractor(ABC):
     """Base class for TCM entity extractors."""
@@ -22,8 +23,13 @@ class BaseExtractor(ABC):
         self._extracted_cache: Dict[str, ExtractionResult] = {}
     
     @abstractmethod
-    def extract(self, text: str, sources: List[Source]) -> ExtractionResult:
-        """Extract entities from text with source attribution."""
+    def extract(
+        self, 
+        text: str, 
+        sources: List[Source],
+        context_entities: Optional[List[ExtractedEntity]] = None
+    ) -> ExtractionResult:
+        """Extract entities from text with source attribution and optional context."""
         pass
     
     def validate_extraction(self, result: ExtractionResult) -> bool:

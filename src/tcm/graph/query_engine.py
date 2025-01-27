@@ -12,7 +12,7 @@ class QueryResult:
     relationships: List[Relationship]
     sources: Set[Source]
     confidence: float
-    metadata: Dict[str, any]
+    metadata: Dict[str, Any]
 
 class TCMGraphQueryEngine:
     """Query engine for TCM knowledge graph."""

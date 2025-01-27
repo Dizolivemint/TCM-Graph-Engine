@@ -1,5 +1,5 @@
 # tcm/core/models.py
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from .enums import NodeType, RelationType, SourceType
@@ -21,16 +21,30 @@ class Source(BaseModel):
             raise ValueError(f"Invalid year: {v}")
         return v
 
+    def __hash__(self) -> int:
+        """Make Source hashable based on its id."""
+        return hash(self.id)
+    
+    def __eq__(self, other: object) -> bool:
+        """Define equality based on id for consistent hashing."""
+        if not isinstance(other, Source):
+            return NotImplemented
+        return self.id == other.id
+    
+    class Config:
+        """Pydantic configuration."""
+        frozen = True  # Make Source immutable to ensure hash consistency
+
 class Node(BaseModel):
     """Base node in the knowledge graph."""
     id: str
     type: NodeType
     name: str
     names: Dict[str, str] = Field(default_factory=dict)  # Alternative names/synonyms
-    attributes: Dict[str, any] = Field(default_factory=dict)
+    attributes: Dict[str, Any] = Field(default_factory=dict)
     sources: List[Source]
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
-    metadata: Dict[str, any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     
     @field_validator('id')
     @classmethod
@@ -51,10 +65,10 @@ class Relationship(BaseModel):
     source_id: str
     target_id: str
     type: RelationType
-    attributes: Dict[str, any] = Field(default_factory=dict)
+    attributes: Dict[str, Any] = Field(default_factory=dict)
     sources: List[Source]
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
-    metadata: Dict[str, any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     
     @field_validator('source_id', 'target_id')
     @classmethod

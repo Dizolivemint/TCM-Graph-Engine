@@ -1,12 +1,13 @@
 # tcm/extractors/signs.py
 import re
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Any, Dict, List, Set, Tuple, Optional
 import hashlib
 from dataclasses import dataclass
 
 from tcm.core.exceptions import ProcessingError
 from tcm.core.models import Node, Source
 from tcm.core.enums import NodeType, SignType
+from tcm.processors.text_extractor import ExtractedEntity
 from .base import BaseExtractor, ExtractionResult
 
 @dataclass
@@ -26,7 +27,7 @@ class SignExtractor(BaseExtractor):
         self.modifier_patterns = self._compile_modifier_patterns()
         self.relationship_patterns = self._compile_relationship_patterns()
     
-    def extract(self, text: str, sources: List[Source]) -> ExtractionResult:
+    def extract(self, text: str, sources: List[Source], context_entities: Optional[List[ExtractedEntity]] = None) -> ExtractionResult:
         """Extract diagnostic sign information from text."""
         try:
             # Generate cache key
@@ -43,6 +44,15 @@ class SignExtractor(BaseExtractor):
             
             for sign_type in SignType:
                 mentions = self._extract_sign_mentions(text, sign_type)
+                
+                # Incorporate context entities of matching type
+                if context_entities:
+                    for entity in context_entities:
+                        if entity.text not in mentions:
+                            mentions[entity.text] = []
+                        position = entity.metadata.get('position', (0, len(entity.text)))
+                        mentions[entity.text].append(position)
+                        
                 all_mentions.update(mentions)
                 
                 # Process each sign mention
@@ -239,7 +249,7 @@ class SignExtractor(BaseExtractor):
         sign_text: str,
         contexts: List[str],
         sign_type: SignType
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """Extract detailed information about a diagnostic sign."""
         details = {
             "characteristics": self._extract_characteristics(sign_text, contexts, sign_type),
@@ -377,7 +387,7 @@ class SignExtractor(BaseExtractor):
         
         return significance
     
-    def _calculate_confidence(self, details: Dict[str, any]) -> float:
+    def _calculate_confidence(self, details: Dict[str, Any]) -> float:
         """Calculate confidence score for sign extraction."""
         confidence = 0.5  # Base confidence
         

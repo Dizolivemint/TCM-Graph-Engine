@@ -1,12 +1,13 @@
 # tcm/extractors/patterns.py
 import re
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Any, Dict, List, Set, Tuple, Optional
 import hashlib
 from enum import Enum
 
 from tcm.core.exceptions import ProcessingError
 from tcm.core.models import Node, Source
 from tcm.core.enums import NodeType
+from tcm.processors.text_extractor import ExtractedEntity
 from .base import BaseExtractor, ExtractionResult
 
 class PatternCategory(Enum):
@@ -28,7 +29,7 @@ class PatternExtractor(BaseExtractor):
         self.category_patterns = self._compile_category_patterns()
         self.modifier_patterns = self._compile_modifier_patterns()
     
-    def extract(self, text: str, sources: List[Source]) -> ExtractionResult:
+    def extract(self, text: str, sources: List[Source], context_entities: Optional[List[ExtractedEntity]] = None) -> ExtractionResult:
         """Extract pattern information from text."""
         try:
             # Generate cache key
@@ -41,6 +42,14 @@ class PatternExtractor(BaseExtractor):
             
             # Extract pattern mentions
             pattern_mentions = self._extract_pattern_mentions(text)
+            
+            # Use context entities to enhance extraction if available
+            if context_entities:
+                for entity in context_entities:
+                    if entity.text not in pattern_mentions:
+                        pattern_mentions[entity.text] = []
+                    position = entity.metadata.get('position', (0, len(entity.text)))
+                    pattern_mentions[entity.text].append(position)
             
             # Process each pattern mention
             nodes = []
@@ -216,7 +225,7 @@ class PatternExtractor(BaseExtractor):
         self,
         pattern_name: str,
         contexts: List[str]
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """Extract detailed information about a pattern."""
         details = {
             "category": None,
@@ -343,7 +352,7 @@ class PatternExtractor(BaseExtractor):
         
         return characteristics
     
-    def _calculate_confidence(self, details: Dict[str, any]) -> float:
+    def _calculate_confidence(self, details: Dict[str, Any]) -> float:
         """Calculate confidence score for pattern extraction."""
         confidence = 0.5  # Base confidence
         

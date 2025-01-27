@@ -54,47 +54,60 @@ class KnowledgeGraphBuilder:
             raise
     
     def _process_document(self, file_path: Path) -> None:
-        """Process a single document and extract knowledge."""
-        logger.info(f"Processing document: {file_path}")
-        
-        try:
-            # Process document
-            doc_content = self.doc_processor.process(file_path)
-            
-            # Create source reference
-            source = Source(
-                id=f"source_{file_path.stem}",
-                type=SourceType.TEXTBOOK,  # Default to textbook, can be refined
-                title=doc_content['metadata'].get('title', file_path.name)
-            )
-            self.processed_sources.add(source)
-            
-            # Extract text blocks
-            text_blocks = self._extract_text_blocks(doc_content)
-            
-            # Extract entities
-            entities = self.text_extractor.process(text_blocks)
-            
-            # Process with specialized extractors
-            herbs = self.herb_extractor.extract(
-                "\n".join(block['text'] for block in text_blocks),
-                [source]
-            )
-            patterns = self.pattern_extractor.extract(
-                "\n".join(block['text'] for block in text_blocks),
-                [source]
-            )
-            signs = self.sign_extractor.extract(
-                "\n".join(block['text'] for block in text_blocks),
-                [source]
-            )
-            
-            # Add extracted knowledge to graph
-            self._add_to_graph(herbs, patterns, signs)
-            
-        except Exception as e:
-            logger.error(f"Error processing {file_path}: {e}")
-            raise
+      """Process a single document and extract knowledge."""
+      logger.info(f"Processing document: {file_path}")
+      
+      try:
+          # Process document
+          doc_content = self.doc_processor.process(file_path)
+          
+          # Create source reference
+          source = Source(
+              id=f"source_{file_path.stem}",
+              type=SourceType.TEXTBOOK,  # Default to textbook, can be refined
+              title=doc_content['metadata'].get('title', file_path.name)
+          )
+          self.processed_sources.add(source)
+          
+          # Extract text blocks
+          text_blocks = self._extract_text_blocks(doc_content)
+          
+          # Extract general entities first
+          entities = self.text_extractor.process(text_blocks)
+          
+          # Group entities by type for context
+          entity_groups = {
+              'herbs': [e for e in entities if e.type == 'herb'],
+              'patterns': [e for e in entities if e.type == 'pattern'],
+              'signs': [e for e in entities if e.type == 'sign']
+          }
+          
+          # Use entities context for specialized extraction
+          combined_text = "\n".join(block['text'] for block in text_blocks)
+          
+          # Process with specialized extractors, passing relevant entities
+          herbs = self.herb_extractor.extract(
+              combined_text,
+              [source],
+              context_entities=entity_groups['herbs']
+          )
+          patterns = self.pattern_extractor.extract(
+              combined_text,
+              [source],
+              context_entities=entity_groups['patterns']
+          )
+          signs = self.sign_extractor.extract(
+              combined_text,
+              [source],
+              context_entities=entity_groups['signs']
+          )
+          
+          # Add all extracted knowledge to graph
+          self._add_to_graph(entities, herbs, patterns, signs)
+          
+      except Exception as e:
+          logger.error(f"Error processing {file_path}: {e}")
+          raise
     
     def _extract_text_blocks(self, doc_content: Dict) -> List[Dict]:
         """Extract text blocks from document content."""
@@ -103,18 +116,41 @@ class KnowledgeGraphBuilder:
             blocks.extend(page['blocks'])
         return blocks
     
-    def _add_to_graph(self, herbs, patterns, signs) -> None:
-        """Add extracted knowledge to the graph."""
-        # Add nodes
-        for extraction in [herbs, patterns, signs]:
-            for node in extraction.nodes:
-                try:
-                    self.graph.add_node(node)
-                except Exception as e:
-                    logger.warning(f"Error adding node {node.id}: {e}")
-        
-        # Infer and add relationships
-        self._infer_relationships(herbs, patterns, signs)
+    def _add_to_graph(self, entities, herbs, patterns, signs) -> None:
+      """Add extracted knowledge to the graph."""
+      # Add nodes from general entities first
+      if entities:  # Check if entities is not None
+          for entity in entities:
+              try:
+                  self.graph.add_node(entity)
+              except Exception as e:
+                  logger.warning(f"Error adding entity node {entity.id}: {e}")
+
+      # Add specialized nodes
+      for extraction_name, extraction in [
+          ("herbs", herbs),
+          ("patterns", patterns),
+          ("signs", signs)
+      ]:
+          if extraction is None:
+              logger.warning(f"Skipping {extraction_name} extraction: Result is None")
+              continue
+              
+          try:
+              for node in extraction.nodes:
+                  try:
+                      self.graph.add_node(node)
+                  except Exception as e:
+                      logger.warning(f"Error adding {extraction_name} node {node.id}: {e}")
+          except AttributeError as e:
+              logger.error(f"Invalid extraction result for {extraction_name}: {e}")
+      
+      # Only infer relationships if we have valid extraction results
+      if any(x is not None for x in [herbs, patterns, signs]):
+          try:
+              self._infer_relationships(entities, herbs, patterns, signs)
+          except Exception as e:
+              logger.error(f"Error inferring relationships: {e}")
     
     def _infer_relationships(self, herbs, patterns, signs) -> None:
         """Infer relationships between extracted entities."""

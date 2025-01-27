@@ -20,13 +20,13 @@ class AnalysisType(Enum):
 class AnalysisResult:
     """Container for TCM analysis results."""
     primary_entities: List[Node]
-    interactions: List[Dict[str, any]]
-    contraindications: List[Dict[str, any]]
+    interactions: List[Dict[str, Any]]
+    contraindications: List[Dict[str, Any]]
     explanation: str
     mechanism: str
     confidence: float
     sources: Set[Source]
-    metadata: Dict[str, any]
+    metadata: Dict[str, Any]
 
 class TCMAnalysisEngine:
     """Comprehensive TCM analysis engine with foundation model integration."""

@@ -27,7 +27,7 @@ class EnhancedQueryResult:
     sources: Set[Source]
     confidence: float
     reasoning_chain: List[str]
-    metadata: Dict[str, any]
+    metadata: Dict[str, Any]
 
 class RAGType(Enum):
     GRAPH = "graph"
